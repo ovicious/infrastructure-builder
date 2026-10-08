@@ -1,9 +1,9 @@
 # Infrastructure Builder
 
 Infrastructure Builder (`infra-builder`) is a safety-first CLI for
-planning and generating local infrastructure. It is being built in
-milestones; the current 0.1.0 release is the project skeleton only.
-It does not configure hosts, create infrastructure, or run services.
+planning and generating local infrastructure. The current 0.1.0
+milestone provides configuration initialization and validation. It does
+not configure hosts, create infrastructure, or run services.
 
 ## Requirements
 
@@ -22,14 +22,25 @@ python -m pip install -e ".[dev]"
 ```bash
 infra-builder --help
 infra-builder version
+infra-builder init
+infra-builder validate infra.yaml
 ```
+
+Use `infra-builder init --non-interactive` to write the safe default
+configuration, or pass `--output PATH` to choose where the YAML file is
+saved. The interactive wizard supports local Docker Compose and
+generate-only host-systemd configuration choices.
+
+Configuration fields and validation rules are documented in
+[docs/configuration.md](docs/configuration.md).
 
 ## Safety and scope
 
-This release includes no infrastructure execution. Future operations
-will be planned and reviewed before any explicit, approval-gated apply
-step. AI will remain optional and will never be allowed to execute
-commands.
+Initialization and validation do not execute commands or modify hosts.
+Infrastructure generation, planning, and execution are not implemented
+yet. Future operations will be reviewed before any explicit,
+approval-gated apply step. AI will remain optional and will never be
+allowed to execute commands.
 
 See [docs/roadmap.md](docs/roadmap.md) for the planned milestones.
 

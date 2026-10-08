@@ -1,0 +1,27 @@
+schema_version: 1
+project:
+  name: demo-api
+  output_dir: ./generated/demo-api
+infrastructure:
+  target: local
+  os: ubuntu
+runtime:
+  type: docker_compose
+application:
+  type: generic
+  name: api
+  port: 8080
+  image: nginx:stable
+services:
+  postgres:
+    enabled: true
+    database: app
+    username: app_user
+    password_env: INFRA_BUILDER_POSTGRES_PASSWORD
+  redis:
+    enabled: false
+observability:
+  metrics: true
+  centralized_logs: false
+execution:
+  require_approval: true
