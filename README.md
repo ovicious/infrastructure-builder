@@ -45,14 +45,32 @@ It refuses to overwrite unmanaged files, manually changed managed files,
 or unsafe symlink targets. Generation does not run Docker or systemd.
 Generated Compose ports are bound to localhost by default.
 
+`apply` shows the plan and requires confirmation before checking and
+starting Docker Compose services. Use `--yes` for explicit
+non-interactive approval. PostgreSQL requires its configured password
+environment variable to be set externally. `status` inspects only a
+project recorded in tool-managed state. `destroy` lists the managed
+project and generated files, then requires typing the project name;
+non-interactive cleanup requires both `--yes` and
+`--confirm-project PROJECT_NAME`. Named Docker volumes are deliberately
+retained. Docker commands use argument arrays, `shell=False`, and a
+120-second timeout.
+Apply verifies Docker reports every configured container as running and
+reports Docker health when a service defines a container healthcheck;
+services without one are explicitly reported as running without a
+healthcheck.
+Once a project is applied, generation refuses config changes until that
+managed project is destroyed using its original config. `.env` files and
+runtime state files are excluded by `.gitignore`.
+
 ## Safety and scope
 
 Initialization, validation, and planning do not execute commands or
 modify hosts. Generation creates reviewable files only; generated
 systemd units are templates and are never installed or activated.
-Future execution will be reviewed before any explicit, approval-gated
-apply step. AI will remain optional and will never be allowed to execute
-commands.
+Docker Compose execution is supported only through the explicit
+approval-gated local adapter. AI will remain optional and will never be
+allowed to execute commands.
 
 See [docs/roadmap.md](docs/roadmap.md) for the planned milestones.
 

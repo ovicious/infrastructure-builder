@@ -99,6 +99,29 @@ def test_generate_refuses_corrupt_manifest(tmp_path: Path) -> None:
         generate_files(config, tmp_path)
 
 
+def test_generate_refuses_corrupt_runtime_state(tmp_path: Path) -> None:
+    config = compose_config()
+    output_dir = tmp_path / config.project.output_dir
+    output_dir.mkdir(parents=True)
+    (output_dir / ".infra-builder-state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "project_name": config.project.name,
+                "compose_project": config.project.name,
+                "config_sha256": "0" * 64,
+                "status": "applied",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GenerationError, match="runtime state.*invalid"):
+        generate_files(config, tmp_path)
+
+    assert not (output_dir / "compose.yaml").exists()
+
+
 def test_generate_refuses_symlinked_generated_file(tmp_path: Path) -> None:
     config = InfraConfig(
         project={"name": "demo-api", "output_dir": "./generated/demo-api"}

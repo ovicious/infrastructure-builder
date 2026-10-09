@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from infra_builder.models import InfraConfig
 
 MANIFEST_NAME = ".infra-builder-manifest.json"
+STATE_NAME = ".infra-builder-state.json"
 
 
 @dataclass(frozen=True)

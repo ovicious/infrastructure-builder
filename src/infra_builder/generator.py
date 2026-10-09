@@ -13,7 +13,7 @@ from typing import Any
 import yaml
 
 from infra_builder.models import InfraConfig
-from infra_builder.planner import MANIFEST_NAME, planned_files
+from infra_builder.planner import MANIFEST_NAME, STATE_NAME, planned_files
 from infra_builder.validator import validate_config
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -223,6 +223,59 @@ def _validate_target_path(root: Path, relative_path: str) -> Path:
     return candidate
 
 
+def _validate_existing_runtime_state(root: Path, config: InfraConfig) -> None:
+    path = root / STATE_NAME
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or not path.is_file():
+        raise GenerationError(
+            f"managed runtime state '{path}' is unsafe; manual review is required"
+        )
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise GenerationError(
+            f"managed runtime state '{path}' is corrupt; manual review is required"
+        ) from error
+    required_fields = {
+        "schema_version",
+        "project_name",
+        "compose_project",
+        "compose_sha256",
+        "config_sha256",
+        "status",
+    }
+    if (
+        not isinstance(state, dict)
+        or set(state) != required_fields
+        or type(state.get("schema_version")) is not int
+        or state["schema_version"] != 1
+        or state.get("project_name") != config.project.name
+        or state.get("compose_project") != config.project.name
+        or state.get("status")
+        not in {
+            "applying",
+            "applied",
+            "apply_failed",
+            "destroying",
+            "destroy_failed",
+        }
+        or any(
+            not isinstance(state.get(key), str)
+            or not _SHA256_PATTERN.fullmatch(state[key])
+            for key in ("compose_sha256", "config_sha256")
+        )
+    ):
+        raise GenerationError(
+            f"managed runtime state '{path}' is invalid; manual review is required"
+        )
+    if state.get("config_sha256") != _sha256(_canonical_config(config)):
+        raise GenerationError(
+            "configuration differs from the managed runtime state; destroy the "
+            "managed project with its original config before changing settings"
+        )
+
+
 def _write_atomic(path: Path, contents: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -259,6 +312,7 @@ def generate_files(config: InfraConfig, config_dir: Path) -> tuple[Path, ...]:
         raise GenerationError(
             f"project output path is not a directory: '{output_root}'"
         )
+    _validate_existing_runtime_state(output_root, config)
 
     contents_by_path = render_files(config)
     expected_files = set(planned_files(config))

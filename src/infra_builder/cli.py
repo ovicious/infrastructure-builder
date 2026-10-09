@@ -7,6 +7,12 @@ import typer
 from pydantic import ValidationError
 
 from infra_builder import __version__
+from infra_builder.adapters.docker_compose import (
+    AdapterError,
+    DockerComposeAdapter,
+    MissingPrerequisiteError,
+    RuntimeStatus,
+)
 from infra_builder.config_io import ConfigError, load_config, save_config
 from infra_builder.generator import GenerationError, generate_files
 from infra_builder.models import InfraConfig
@@ -124,3 +130,178 @@ def generate(
     for path in generated:
         typer.echo(f"  {path}")
     typer.echo("No services were started.")
+
+
+def _load_runtime_config(config_path: Path) -> InfraConfig:
+    config = load_config(config_path)
+    validate_config(config, config_path.parent)
+    return config
+
+
+def _display_status(status: RuntimeStatus) -> None:
+    if not status.managed:
+        typer.echo(status.lifecycle)
+        return
+    typer.echo(f"Managed runtime: {status.lifecycle}")
+    if not status.services:
+        typer.echo("No containers found for the managed Compose project.")
+        return
+    for service in status.services:
+        health = (
+            f", health: {service.health}"
+            if service.health not in {"", "not reported"}
+            else ", healthcheck: not configured"
+        )
+        typer.echo(f"  {service.name}: {service.state}{health}")
+
+
+def _display_apply_plan(config: InfraConfig) -> None:
+    typer.echo(format_plan_text(config))
+    services = sorted(
+        {
+            config.application.name,
+            *({"postgres"} if config.services.postgres.enabled else set()),
+            *({"redis"} if config.services.redis.enabled else set()),
+            *({"prometheus"} if config.observability.metrics else set()),
+        }
+    )
+    typer.echo("After approval, apply will:")
+    typer.echo(
+        f"  [local_change] Start Compose project {config.project.name}: "
+        f"{', '.join(services)}"
+    )
+    typer.echo(
+        "  [reversible] Run the tool-built `docker compose up --detach` command; "
+        "destroy stops containers and retains named volumes."
+    )
+
+
+@app.command()
+def apply(
+    config_path: Annotated[Path, typer.Argument(metavar="CONFIG")] = Path("infra.yaml"),
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+) -> None:
+    """Review the plan and start supported local Compose services."""
+    try:
+        config = _load_runtime_config(config_path)
+        if config.runtime.type != "docker_compose":
+            typer.echo("apply currently supports only docker_compose.", err=True)
+            raise typer.Exit(code=2)
+    except ConfigError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from error
+
+    _display_apply_plan(config)
+    if not yes and not typer.confirm(
+        "Apply this plan and start the Docker Compose services?", default=False
+    ):
+        typer.echo("Apply cancelled; no changes were made.")
+        raise typer.Exit(code=4)
+
+    try:
+        status = DockerComposeAdapter().apply(config, config_path.parent)
+    except AdapterError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(
+            code=3 if isinstance(error, MissingPrerequisiteError) else 5
+        ) from error
+    except GenerationError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=5) from error
+    except OSError as error:
+        typer.echo(f"apply failed: {error}", err=True)
+        raise typer.Exit(code=5) from error
+
+    _display_status(status)
+
+
+@app.command()
+def status(
+    config_path: Annotated[Path, typer.Argument(metavar="CONFIG")] = Path("infra.yaml"),
+) -> None:
+    """Report status of resources recorded as tool-managed."""
+    try:
+        config = _load_runtime_config(config_path)
+        result = DockerComposeAdapter().status(config, config_path.parent)
+    except (ConfigError, AdapterError, GenerationError) as error:
+        typer.echo(str(error), err=True)
+        code = (
+            3
+            if isinstance(error, MissingPrerequisiteError)
+            else 5
+            if isinstance(error, (AdapterError, GenerationError))
+            else 2
+        )
+        raise typer.Exit(code=code) from error
+    except OSError as error:
+        typer.echo(f"status check failed: {error}", err=True)
+        raise typer.Exit(code=5) from error
+
+    _display_status(result)
+
+
+@app.command()
+def destroy(
+    config_path: Annotated[Path, typer.Argument(metavar="CONFIG")] = Path("infra.yaml"),
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+    confirm_project: Annotated[
+        str | None,
+        typer.Option(
+            "--confirm-project",
+            help="Required with --yes; must exactly match the project name.",
+        ),
+    ] = None,
+) -> None:
+    """Show and confirm cleanup of only resources recorded as tool-managed."""
+    try:
+        config = _load_runtime_config(config_path)
+        if config.runtime.type != "docker_compose":
+            typer.echo("destroy is supported only for docker_compose.", err=True)
+            raise typer.Exit(code=2)
+        adapter = DockerComposeAdapter()
+        preview = adapter.destroy_preview(config, config_path.parent)
+    except (ConfigError, AdapterError, GenerationError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(
+            code=5 if isinstance(error, (AdapterError, GenerationError)) else 2
+        ) from error
+
+    if not preview:
+        typer.echo("No infra-builder-managed resources found.")
+        return
+
+    typer.echo("Destroy will:")
+    for item in preview:
+        typer.echo(f"  {item}")
+
+    if yes:
+        if confirm_project != config.project.name:
+            typer.echo(
+                "Destructive non-interactive execution requires "
+                f"--confirm-project {config.project.name}.",
+                err=True,
+            )
+            raise typer.Exit(code=4)
+    else:
+        if confirm_project is not None:
+            typer.echo("--confirm-project is valid only together with --yes.", err=True)
+            raise typer.Exit(code=2)
+        entered = typer.prompt(
+            f"Type the project name '{config.project.name}' to confirm destruction"
+        )
+        if entered != config.project.name:
+            typer.echo("Destroy cancelled; no resources were changed.")
+            raise typer.Exit(code=4)
+
+    try:
+        result = adapter.destroy(config, config_path.parent)
+    except (AdapterError, GenerationError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(
+            code=3 if isinstance(error, MissingPrerequisiteError) else 5
+        ) from error
+    except OSError as error:
+        typer.echo(f"destroy failed: {error}", err=True)
+        raise typer.Exit(code=5) from error
+    for item in result:
+        typer.echo(item)

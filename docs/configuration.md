@@ -76,4 +76,16 @@ that are not recorded as tool-managed or that have changed since they
 were last generated. Compose application and Prometheus ports are bound
 to localhost. Prometheus assumes the application exports metrics at
 `/metrics`; the generated starter config does not instrument the
-application. It never starts services.
+application. `apply` starts only Docker Compose services after explicit
+approval. PostgreSQL's configured password environment variable must be
+provided externally for Compose operations; the project never persists
+its value. `status` reports only tool-managed state. `destroy` requires
+typing the exact project name, or both `--yes` and
+`--confirm-project PROJECT_NAME` in non-interactive use. Destroy retains
+named volumes and refuses corrupt state, changed managed files, or
+resources without a state record. Apply verifies configured containers
+are running and reports Docker health when configured; it does not claim
+application-level readiness for containers without a healthcheck.
+`host_systemd` remains generate-only.
+After apply, generation refuses config changes in that output directory
+until the managed project is destroyed using its original config.
