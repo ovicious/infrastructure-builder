@@ -143,7 +143,34 @@ class InfraConfig(StrictModel):
         return value
 
     @model_validator(mode="after")
-    def require_image_for_compose(self) -> InfraConfig:
+    def validate_runtime_and_services(self) -> InfraConfig:
         if self.runtime.type == "docker_compose" and self.application.image is None:
             raise ValueError("Docker Compose applications require an image")
+        if self.runtime.type == "host_systemd" and (
+            self.services.postgres.enabled
+            or self.services.redis.enabled
+            or self.observability.metrics
+        ):
+            raise ValueError(
+                "PostgreSQL, Redis, and metrics are currently supported only "
+                "with docker_compose"
+            )
+        reserved_services = {
+            name
+            for name, enabled in (
+                ("postgres", self.services.postgres.enabled),
+                ("redis", self.services.redis.enabled),
+                ("prometheus", self.observability.metrics),
+            )
+            if enabled
+        }
+        if self.application.name in reserved_services:
+            raise ValueError(
+                f"application.name conflicts with enabled service "
+                f"'{self.application.name}'"
+            )
+        if self.observability.metrics and self.application.port == 9090:
+            raise ValueError(
+                "application.port conflicts with the Prometheus host port 9090"
+            )
         return self

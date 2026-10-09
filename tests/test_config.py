@@ -60,3 +60,65 @@ def test_output_directory_cannot_escape_config_directory(tmp_path: Path) -> None
 
     with pytest.raises(ConfigError, match="outside the config directory"):
         validate_config(config, tmp_path)
+
+
+def test_unsupported_centralized_logs_are_rejected(tmp_path: Path) -> None:
+    config = InfraConfig(observability={"centralized_logs": True})
+
+    with pytest.raises(ConfigError, match="not supported yet"):
+        validate_config(config, tmp_path)
+
+
+def test_output_directory_symlink_loop_is_reported(tmp_path: Path) -> None:
+    config = InfraConfig(project={"output_dir": "./generated"})
+    (tmp_path / "generated").symlink_to("generated")
+
+    with pytest.raises(ConfigError, match="cannot safely resolve"):
+        validate_config(config, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        (
+            {
+                "application": {"name": "postgres"},
+                "services": {"postgres": {"enabled": True}},
+            },
+            "conflicts",
+        ),
+        (
+            {
+                "application": {"name": "redis"},
+                "services": {"redis": {"enabled": True}},
+            },
+            "conflicts",
+        ),
+        (
+            {
+                "application": {"name": "prometheus"},
+                "observability": {"metrics": True},
+            },
+            "conflicts",
+        ),
+        (
+            {
+                "application": {"port": 9090},
+                "observability": {"metrics": True},
+            },
+            "conflicts",
+        ),
+        (
+            {
+                "runtime": {"type": "host_systemd"},
+                "services": {"postgres": {"enabled": True}},
+            },
+            "supported only",
+        ),
+    ],
+)
+def test_incompatible_service_configuration_is_rejected(
+    data: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        InfraConfig.model_validate(data)

@@ -49,6 +49,9 @@ execution:
   segments; validation also rejects paths that resolve through a symlink
   outside the directory containing the config
 - Docker Compose configurations require an application image
+- PostgreSQL, Redis, and metrics can only be enabled with `docker_compose`
+- `observability.centralized_logs` must be `false`; centralized logging
+  generation is not supported in this milestone
 - `services.postgres.password_env`: environment variable name only, never
   a password value
 
@@ -63,3 +66,14 @@ not accepted by the schema.
 defaults. Use `--output PATH` to select another config file location.
 `infra-builder validate [CONFIG]` validates the file (default:
 `infra.yaml`) and makes no system changes.
+
+`infra-builder plan [CONFIG]` shows the deterministic generated files
+without writing them. Use `--format json` for machine-readable output.
+`infra-builder generate [CONFIG]` writes the planned files under
+`project.output_dir`; `--output PATH` may override it with another
+relative path. It writes a hash manifest and refuses to overwrite files
+that are not recorded as tool-managed or that have changed since they
+were last generated. Compose application and Prometheus ports are bound
+to localhost. Prometheus assumes the application exports metrics at
+`/metrics`; the generated starter config does not instrument the
+application. It never starts services.

@@ -2,7 +2,8 @@ from typer.testing import CliRunner
 
 from infra_builder import __version__
 from infra_builder.cli import app
-from infra_builder.config_io import load_config
+from infra_builder.config_io import load_config, save_config
+from infra_builder.models import InfraConfig
 
 runner = CliRunner()
 
@@ -86,3 +87,41 @@ def test_validate_reports_invalid_config(tmp_path) -> None:
 
     assert result.exit_code == 2
     assert "schema_version" in result.stderr
+
+
+def test_plan_rejects_invalid_output_format(tmp_path) -> None:
+    config = tmp_path / "infra.yaml"
+    save_config(InfraConfig(), config)
+
+    result = runner.invoke(app, ["plan", str(config), "--format", "xml"])
+
+    assert result.exit_code == 2
+
+
+def test_generate_command_writes_only_reviewable_files(tmp_path) -> None:
+    config_path = tmp_path / "infra.yaml"
+    save_config(
+        InfraConfig(project={"output_dir": "./generated/demo"}),
+        config_path,
+    )
+
+    result = runner.invoke(app, ["generate", str(config_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "No services were started." in result.stdout
+    assert (tmp_path / "generated/demo/compose.yaml").is_file()
+    assert (tmp_path / "generated/demo/.infra-builder-manifest.json").is_file()
+
+
+def test_generate_output_override_rejects_path_traversal(tmp_path) -> None:
+    config_path = tmp_path / "infra.yaml"
+    save_config(InfraConfig(), config_path)
+
+    result = runner.invoke(
+        app,
+        ["generate", str(config_path), "--output", "../outside"],
+    )
+
+    assert result.exit_code == 2
+    assert "relative path" in result.stderr
+    assert not (tmp_path.parent / "outside").exists()
