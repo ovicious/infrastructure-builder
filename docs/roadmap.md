@@ -1,5 +1,11 @@
 # Roadmap
 
+Implementation checklist for the current milestone:
+
+- [x] Review the plan and repository status.
+- [x] Add a local Ollama assistant adapter and `ai-configure` command.
+- [ ] Exercise the command with mocked success and failure cases.
+
 - [x] Milestone 0: Python package skeleton, CLI entry point, documentation,
   and smoke tests.
 - [x] Milestone 1: Typed configuration, YAML I/O, local wizard, and validation.

@@ -62,8 +62,11 @@ not accepted by the schema.
 ## Commands
 
 `infra-builder init` launches the interactive wizard and writes
-`infra.yaml`. `infra-builder init --non-interactive` writes the safe
-defaults. Use `--output PATH` to select another config file location.
+`infra.yaml`. The wizard's project output directory must be a relative
+path inside the directory containing the config file; invalid paths are
+rejected immediately and the wizard prompts again. `infra-builder init
+--non-interactive` writes the safe defaults. Use `--output PATH` to
+select another config file location.
 `infra-builder validate [CONFIG]` validates the file (default:
 `infra.yaml`) and makes no system changes.
 

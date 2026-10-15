@@ -60,7 +60,7 @@ def test_interactive_init_collects_local_configuration(tmp_path) -> None:
             "api",
             "8080",
             "nginx:stable",
-            "./generated/demo-api",
+            "",
             "y",
             "n",
             "y",
@@ -76,8 +76,35 @@ def test_interactive_init_collects_local_configuration(tmp_path) -> None:
     assert result.exit_code == 0, result.output
     config = load_config(output)
     assert config.project.name == "demo-api"
+    assert config.project.output_dir == "./generated/demo-api"
     assert config.services.postgres.enabled is True
     assert config.observability.metrics is True
+
+
+def test_interactive_init_reprompts_for_absolute_output_directory(tmp_path) -> None:
+    output = tmp_path / "infra.yaml"
+    outside = tmp_path.parent / "outside-project"
+    answers = "\n".join(
+        [
+            "demo-api",
+            "1",
+            "1",
+            "api",
+            "8080",
+            "nginx:stable",
+            str(outside),
+            "./generated/demo-api",
+            "n",
+            "n",
+            "n",
+        ]
+    )
+
+    result = runner.invoke(app, ["init", "--output", str(output)], input=answers)
+
+    assert result.exit_code == 0, result.output
+    assert "relative path" in result.stdout
+    assert load_config(output).project.output_dir == "./generated/demo-api"
 
 
 def test_validate_reports_invalid_config(tmp_path) -> None:

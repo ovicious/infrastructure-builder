@@ -16,6 +16,7 @@ from infra_builder.adapters.docker_compose import (
 from infra_builder.config_io import ConfigError, load_config, save_config
 from infra_builder.generator import GenerationError, generate_files
 from infra_builder.models import InfraConfig
+from infra_builder.ollama import OllamaAssistant, OllamaError
 from infra_builder.planner import format_plan_json, format_plan_text
 from infra_builder.validator import validate_config
 from infra_builder.wizard import collect_config, default_config
@@ -38,6 +39,78 @@ def version() -> None:
     typer.echo(__version__)
 
 
+@app.command("ai-configure")
+def ai_configure(
+    prompt: Annotated[
+        str | None,
+        typer.Argument(help="Describe the infrastructure you want to generate."),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Save the validated draft to a YAML file."),
+    ] = None,
+    model: Annotated[
+        str,
+        typer.Option("--model", help="Ollama model name to use."),
+    ] = "qwen2.5:1.5b",
+    base_url: Annotated[
+        str,
+        typer.Option("--base-url", help="Ollama base URL."),
+    ] = "http://127.0.0.1:11434",
+    timeout: Annotated[
+        float,
+        typer.Option("--timeout", help="Ollama request timeout in seconds."),
+    ] = 30.0,
+) -> None:
+    """Generate a validated configuration draft using a local Ollama model."""
+    try:
+        config_prompt = prompt or typer.prompt(
+            "Describe the infrastructure to generate",
+            default=(
+                "Create a local Docker Compose app with PostgreSQL, Redis, and "
+                "prometheus metrics for a Python service on port 8080."
+            ),
+        )
+        config = OllamaAssistant(
+            model=model,
+            base_url=base_url,
+            timeout=timeout,
+        ).generate_config(config_prompt)
+        validate_config(config, Path.cwd())
+    except (ConfigError, ValidationError, OllamaError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=3 if isinstance(error, OllamaError) else 2) from error
+    except OSError as error:
+        typer.echo(f"cannot generate config: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo("Generated configuration preview:")
+    typer.echo(config.model_dump_json(indent=2))
+
+    if output is None:
+        return
+
+    try:
+        if output.exists() or output.is_symlink():
+            raise ConfigError(f"config file already exists: '{output}'")
+        output.parent.mkdir(parents=True, exist_ok=True)
+    except (ConfigError, OSError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from error
+
+    if not typer.confirm(f"Save this configuration to {output}?"):
+        typer.echo("AI configuration review cancelled; no file was written.")
+        raise typer.Exit(code=4)
+
+    try:
+        save_config(config, output)
+    except ConfigError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from error
+
+    typer.echo(f"Configuration written to {output}")
+
+
 @app.command()
 def init(
     output: Annotated[Path, typer.Option("--output")] = Path("infra.yaml"),
@@ -45,7 +118,11 @@ def init(
 ) -> None:
     """Create a versioned configuration without deploying anything."""
     try:
-        config = default_config() if non_interactive else collect_config()
+        config = (
+            default_config()
+            if non_interactive
+            else collect_config(config_dir=output.parent)
+        )
         validate_config(config, output.parent)
         if output.exists() or output.is_symlink():
             raise ConfigError(f"config file already exists: '{output}'")

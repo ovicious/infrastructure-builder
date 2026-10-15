@@ -27,6 +27,7 @@ infra-builder init
 infra-builder validate infra.yaml
 infra-builder plan infra.yaml
 infra-builder generate infra.yaml
+infra-builder ai-configure "Create a local Python service with PostgreSQL" --output infra.yaml
 ```
 
 Use `infra-builder init --non-interactive` to write the safe default
